@@ -1,0 +1,593 @@
+---
+title: >
+  ManyBabies Habituation Project
+subtitle: >
+  This project aims to explore infant habituation through looking times   using a large harmonised dataset from ManyBabies 1, ManyBabies 3, and ManyBabies 4. Study-relevant materials can be found on the Open Science Framework: https://osf.io/8xm4r
+author:
+  
+- name: Jasmin Dönicke
+  affiliation: 
+  - University Medical Center Mainz
+  email: jasminabuaishah@gmail.com
+  orcid: 0009-0006-0721-0790
+      
+date: 2026-03-21
+format:
+  html:
+    toc: true
+    number-sections: true
+    embed-resources: true
+    mainfont: "Atkinson Hyperlegible"
+    # mainfont: "IBM Plex Sans"
+    link-external-newwindow: true
+    # code-link: true ## does seem to interfere with the title... pity.
+    # code-tools: true
+    theme: 
+    - cosmo
+    - ummz_theme.scss
+execute: 
+  cache: false
+  echo: true
+  eval: true
+  output: true
+  message: false
+  warning: false
+editor_options: 
+  chunk_output_type: console
+  execute:
+  error: true
+---
+
+# Shape of habituation curve
+Explore which functional forms best capture habituation trajectories.
+
+
+## Prepare Data
+```{r}
+#| results: hide
+
+
+# libraries
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(splines)
+library(broom.mixed)
+
+# set environment
+
+# read CSV
+data <- read.csv("final_merged_manybabies.csv")
+
+# assign factors
+data <- data %>%
+  mutate(across(where(is.character), as.factor))
+
+# harmonize two age-variables into one
+unique(data$age_group_new)
+max(data$age_days)
+
+data <- data %>%
+  dplyr::mutate(
+    age = cut(
+      age_days,
+      breaks = c(0, 90, 180, 270, 365, 455, 545, 635, 653),  # boundaries in days
+      labels = c(
+        "< 3 months",
+        "3–6 months",
+        "6–9 months",
+        "9–12 months",
+        "12–15 months",
+        "15–18 months",
+        "18–21 months",
+        "> 21 months"
+      ),
+      right = FALSE
+    )
+  )
+
+data <- data %>%
+  dplyr::mutate(
+    age = dplyr::coalesce(age_group_new, age)
+  )
+
+data <- data %>%
+  dplyr::mutate(
+    age = factor(age, levels = c(
+      "< 3 months",
+      "3–6 months",
+      "6–9 months",
+      "9–12 months",
+      "12–15 months",
+      "15–18 months",
+      "18–21 months",
+      "> 21 months"
+    ))
+  )
+
+# create variable with only testing trials (Training trials [-2, -1, 0] are excluded because they serve familiarization purposes and are not relevant for the main outcome) 
+data <- data %>%
+  dplyr::mutate(
+    testing_trial = ifelse(trial_number > 0, trial_number, NA)
+  )
+
+# remove NA for complete-case analysis
+data_model <- data %>%
+  filter(!is.na(looking_time))
+```
+
+## Simplify Data
+We have roughly 55,000 observations. When testing new code, I can use this smaller sample so things run faster (= use data_sample). Once your code is ready, I will apply it to the full dataset (= use data).
+```{r}
+set.seed(123)
+
+data_sample <- data %>%
+  dplyr::sample_n(5000)
+```
+
+
+## Plot Overall Habituation Curve
+The plot shows a steel early habituation (steep drop), which flattens at circa trial No. 4. This looks like a possible non-linear relationship!
+```{r}
+ggplot(data, aes(x = testing_trial, y = looking_time)) +
+  stat_summary(fun = mean, geom = "line") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2) +
+  scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+  ) +
+  labs(
+    x = "Trial Number",
+    y = "Looking Time (in seconds)",
+    title = "Looking Time Across Trials"
+  ) +
+  theme_minimal()
+```
+
+
+## Create Overall Habituation Curve Models
+To explore which functional forms best capture habituation trajectories, I model looking time as a function of trial number using a series of regression models. Specifically, I compare linear, quadratic, cubic and other shapes (using splines) relationships the variables.
+
+First, I estimate a linear model to assess whether looking time decreases across trials. I then extend this model by including a quadratic term to capture potential curvature in the habituation trajectory. In addition, I fit flexible non-linear models using spline functions to allow for more complex shapes. Importantly, I always use mixed-models with infant-level random intercepts, to account for repeated measurements within infants.
+
+```{r}
+model_linear_mixed <- lmer(looking_time ~ testing_trial + (1 | unique_subject_identifier), data = data_model)
+
+model_quadratic_mixed <- lmer(
+  looking_time ~ testing_trial + I(testing_trial^2) + (1 | unique_subject_identifier),
+  data = data_model
+)
+
+model_spline_mixed <- lmer(
+  looking_time ~ ns(testing_trial, df = 3) + (1 | unique_subject_identifier),
+  data = data_model
+)
+```
+
+### Linear Model
+- Looking-time decreases significantly across trials (Slope = -0.27 [95% CI -0.28,    -0.27], t = -72.79), which tells us: habituation is happening. 
+- On average, looking-time decreased by approximately 0.27 seconds per trial. 
+- There is substantial variability in baseline looking- times across infants, supporting the inclusion of random intercepts.
+- The average looking-time in the first trial was 9.2 seconds.
+```{r}
+summary(model_linear_mixed)
+broom.mixed::tidy(model_linear_mixed, conf.int = TRUE)
+```
+
+### Quadratic Model
+- There is a significant decrease in looking time across trials (Slope = -0.49 [95% CI -0.516, -0.459], t = -33.69) and a significant positive quadratic effect (b = 0.013, t = 15.33). 
+- This indicates that looking-time decreased rapidly at early trials and then leveled off over time, consistent with a typical habituation trajectory. 
+```{r}
+summary(model_quadratic_mixed)
+broom.mixed::tidy(model_quadratic_mixed, conf.int = TRUE)
+```
+
+### Spline Model
+- There is a significant nonlinear decrease in looking time across trials. 
+- Splines cannot be interpreted as easily.
+- The spline model provided the best fit to the data compared to linear and quadratic models, indicating that habituation follows a nonlinear trajectory characterized by a rapid initial decrease and subsequent leveling off. This pattern is consistent with typical habituation processes.
+```{r}
+# A mixed-effects model using natural splines revealed. 
+summary(model_spline_mixed)
+broom.mixed::tidy(model_spline_mixed, conf.int = TRUE)
+```
+
+```{r}
+# Plot Spline Model
+ggplot(data_model, aes(x = testing_trial, y = looking_time)) +
+  geom_smooth(method = "lm", 
+              formula = y ~ splines::ns(x, df = 3), 
+              se = TRUE) +
+  theme_minimal()
+```
+
+```{r}
+# Plot Spline Model on top of observed data
+ggplot(data, aes(x = testing_trial, y = looking_time)) +
+  stat_summary(fun = mean, geom = "line") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2) +
+  scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+  ) +
+  labs(
+    x = "Trial Number",
+    y = "Looking Time (in seconds)",
+    title = "Looking Time Across Trials"
+  ) +
+  geom_smooth(method = "lm", 
+              formula = y ~ splines::ns(x, df = 3), 
+              se = TRUE) +
+  theme_minimal()
+# Here, I am showing the average observed habituation pattern and overlaying a smooth model-based curve to see how well a nonlinear trajectory captures it. 
+```
+
+
+## Compare  Overall Habituation Curve Model Fit 
+
+Here, I compare models based on goodness-of-fit criteria (e.g. AIC).
+
+```{r}
+AIC(model_linear_mixed, model_quadratic_mixed, model_spline_mixed)
+BIC(model_linear_mixed, model_quadratic_mixed, model_spline_mixed)
+```
+
+Here, I compare models by visual inspection of fitted trajectories. This allows me to evaluate whether habituation follows a linear decline, shows rapid early decreases with later stabilization, or exhibits more complex patterns.
+```{r}
+data_summary <- data_model %>%
+  group_by(testing_trial) %>%
+  summarise(
+    mean_lt = mean(looking_time, na.rm = TRUE),
+    sd_lt = sd(looking_time, na.rm = TRUE),
+    n = sum(!is.na(looking_time)),
+    se_lt = sd_lt / sqrt(n),
+    ci_low = mean_lt - 1.96 * se_lt,
+    ci_high = mean_lt + 1.96 * se_lt,
+    .groups = "drop"
+  )
+
+# Linear Model
+ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
+  geom_point(size = 2) +
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE, level = 0.95) +
+  labs(
+    x = "Trial Number",
+    y = "Mean Looking Time",
+    title = "Linear Habituation Trajectory"
+  ) +
+  coord_cartesian(ylim = c(5, 10)) +
+   scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+  ) +
+  theme_minimal()
+
+# Quadratic Model
+ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
+  geom_point(size = 2) +
+  geom_smooth(method = "lm", formula = y ~ x + I(x^2), se = TRUE, level = 0.95) +
+  labs(
+    x = "Trial Number",
+    y = "Mean Looking Time",
+    title = "Quadratic Habituation Trajectory"
+  ) +
+  coord_cartesian(ylim = c(5, 10)) +
+   scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+  ) +
+  theme_minimal()
+
+# Spline Model
+ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
+  geom_point(size = 2) +
+  geom_smooth(method = "lm", formula = y ~ splines::ns(x, df = 3), se = TRUE, level = 0.95) +
+  labs(
+    x = "Trial Number",
+    y = "Mean Looking Time",
+    title = "Spline Model Habituation Trajectory"
+  ) +
+  coord_cartesian(ylim = c(5, 10)) +
+   scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+  ) +
+  theme_minimal()
+```
+
+All models in one plot
+```{r}
+ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
+  geom_point(size = 2.2, color = "black") +
+  
+  geom_smooth(
+    aes(color = "Linear", linetype = "Linear"),
+    method = "lm",
+    formula = y ~ x,
+    se = FALSE,
+    linewidth = 1
+  ) +
+  geom_smooth(
+    aes(color = "Quadratic", linetype = "Quadratic"),
+    method = "lm",
+    formula = y ~ x + I(x^2),
+    se = FALSE,
+    linewidth = 1
+  ) +
+  geom_smooth(
+    aes(color = "Spline", linetype = "Spline"),
+    method = "lm",
+    formula = y ~ splines::ns(x, df = 3),
+    se = FALSE,
+    linewidth = 1
+  ) +
+
+  scale_color_manual(
+    name = "Model",
+    values = c(
+      "Linear" = "darkgreen",
+      "Quadratic" = "blue",
+      "Spline" = "red"
+    )
+  ) +
+  scale_linetype_manual(
+    name = "Model",
+    values = c(
+      "Linear" = "dashed",
+      "Quadratic" = "solid",
+      "Spline" = "dotted"
+    )
+  ) +
+  scale_x_continuous(breaks = 1:16) +
+  labs(
+    x = "Trial Number",
+    y = "Mean Looking Time",
+    title = "Habituation Trajectories by Model"
+  ) +
+  coord_cartesian(ylim = c(5, 10)) +
+  theme_minimal()
+```
+
+
+# Individual differences
+Identify factors that explain variability across infants.
+
+- 2.1 What factors moderate differences?
+- 2.2 Which moderators are most important?
+- 2.3 Do moderators relate to different aspects?
+- 2.4 Are there identifiable subgroups?
+
+## Habituation by Age
+I will use the age variable that I previously created by harmonizing the two variables age_group_new and age_days
+```{r}
+ggplot(data %>% dplyr::filter(testing_trial > 0), 
+       aes(x = testing_trial, y = looking_time, color = age)) +
+  geom_smooth(se = TRUE) +
+  scale_color_discrete(
+    name = "Age"
+  ) +
+  labs(
+    x = "Trial Number",
+    y = "Looking Time (in seconds)",
+    title = "Looking Time Across Trials"
+  ) +
+  scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+  ) +
+  theme_minimal()
+```
+
+
+The plot looks strange: Lets check, how many observations are in each age group in the testing trials!
+```{r}
+data %>%
+  dplyr::filter(testing_trial > 0) %>%
+  dplyr::count(age)
+```
+
+There are few observations in 15-18 and 18-21 months. I will remove NA category for plotting, and add 15-21 months into a single category to make the sample bigger.
+```{r}
+data <- data %>%
+  mutate(new_age = recode(age,
+                              "< 3 months" = "< 3 months",
+                              "3–6 months" = "3–6 months",
+                              "6–9 months" = "6–9 months",
+                              "9–12 months" = "9–12 months",
+                              "12–15 months" = "12–15 months",
+                              "15–18 months" = "15–21 months",
+                              "18–21 months" = "15–21 months",
+                              "21+ months" = "21+ months"))
+
+# check new age-variable
+data %>%
+  dplyr::filter(testing_trial > 0) %>%
+  dplyr::count(new_age)
+```
+
+Plot again with new variable and without NA group (16 observations), with 95% confidence intervals 
+```{r}
+ggplot(data %>% dplyr::filter(testing_trial > 0, !is.na(age) ), 
+       aes(x = testing_trial, y = looking_time, color = new_age)) +
+  geom_smooth(se = TRUE, level = 0.95) +
+  scale_color_discrete(
+    name = "Age"
+  ) +
+  labs(
+    x = "Trial Number",
+    y = "Looking Time (in seconds)",
+    title = "Looking Time Across Trials"
+  ) +
+  scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+  ) +
+  theme_minimal()
+```
+
+## Habituation by Sex of Participant
+There seems to be no sex difference overall! Maybe if we stratify the data by other factors later on.
+```{r}
+ggplot(data %>% dplyr::filter(testing_trial > 0, !is.na(participant_sex) ), 
+       aes(x = testing_trial, y = looking_time, color = participant_sex)) +
+  geom_smooth(se = TRUE) +
+  scale_color_discrete(
+    name = "Sex"
+  ) +
+  labs(
+    x = "Trial Number",
+    y = "Looking Time (in seconds)",
+    title = "Looking Time Across Trials"
+  ) +
+  scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+  ) +
+  theme_minimal()
+```
+
+## Habituation by Gender of Primary Caregiver
+```{r}
+# check amount of data per category
+data %>%
+dplyr::filter(testing_trial > 0) %>%
+dplyr::count(primarycaregiver_gender)
+# "other" and "OTHER" are just 75 observations, compared to 44000 F and 4500 M, remove "other" due to severely missing data for plotting
+
+ggplot(data %>% dplyr::filter(
+         !is.na(primarycaregiver_gender),   
+         !primarycaregiver_gender %in% c("other", "OTHER")), 
+       aes(x = testing_trial, y = looking_time, color = primarycaregiver_gender)) +
+  geom_smooth(se = TRUE, level = 0.95) +
+  scale_color_discrete(
+    name = "Primary Caregiver Gender"
+  ) +
+  labs(
+    x = "Trial Number",
+    y = "Looking Time (in seconds)",
+    title = "Looking Time Across Trials"
+  ) +
+  scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+  ) +
+  theme_minimal()
+```
+
+## Habituation by Language Group
+```{r}
+# check amount of data per category
+data %>%
+dplyr::filter(testing_trial > 0) %>%
+dplyr::count(language_group)
+# "other" and "OTHER" are just 71 observations, remove them for plotting
+
+ggplot(data %>% dplyr::filter(!is.na(language_group),
+                              !language_group %in% c("other")), 
+       aes(x = testing_trial, y = looking_time, color = language_group)) +
+          geom_smooth(se = TRUE, level = 0.95) +
+          scale_color_discrete(
+            name = "Lanuage Group"
+          ) +
+          labs(
+            x = "Trial Number",
+            y = "Looking Time (in seconds)",
+            title = "Looking Time Across Trials"
+          ) +
+          scale_x_continuous(
+            breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+          ) +
+          theme_minimal()
+```
+
+
+
+# Methodological effects
+Assess how methodological choices influence results.
+
+- 3.1 Do differences contribute to variability?
+- 3.2 Do they affect interpretation?
+- 3.3 Do they affect reliability?
+
+
+## Habituation by Trial Type
+```{r}
+# check amount of data per category
+data %>%
+dplyr::filter(testing_trial > 0) %>%
+dplyr::count(trial_type)
+
+
+ggplot(data, aes(x = testing_trial, y = looking_time, color = trial_type)) +
+  geom_smooth(se = TRUE) +
+  scale_color_discrete(
+    name = "Trial Type",
+    labels = c(
+      "ADS" = "Adult speech",
+      "IDS" = "Infant speech",
+      "consistent" = "Consistent",
+      "inconsistent" = "Inconsistent",
+      "nonsocial" = "Non-Social",
+      "social" = "Social"
+    )
+  ) +
+  labs(
+    x = "Trial Number",
+    y = "Looking Time (in seconds)",
+    title = "Looking Time Across Trials"
+  ) +
+  scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+  ) +
+  theme_minimal()
+```
+
+## Habituation by Project ID
+```{r}
+ggplot(data, aes(x = testing_trial, y = looking_time, color = project_id)) +
+  geom_smooth(se = TRUE) +
+  scale_color_discrete(
+    name = "Project ID") +
+  labs(
+    x = "Trial Number",
+    y = "Looking Time (in seconds)",
+    title = "Looking Time Across Trials"
+  ) +
+  scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+  ) +
+  theme_minimal()
+```
+
+#### Habituation by Method
+```{r}
+ggplot(data, aes(x = testing_trial, y = looking_time, color = method)) +
+  geom_smooth(se = TRUE) +
+  scale_color_discrete(
+    name = "Method",
+    labels = c(
+      "eyetracking" = "Eyetracking",
+      "hpp" = "Head-Turn Preference Paradigm",
+      "singlescreen" = "Single Screen")
+  ) +
+  labs(
+    x = "Trial Number",
+    y = "Looking Time (in seconds)",
+    title = "Looking Time Across Trials"
+  ) +
+   scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
+  ) +
+  theme_minimal()
+```
+
+## Habituation by Caregiver Seat
+```{r}
+ggplot(data %>% dplyr::filter(!is.na(caregiver_seat)), 
+       aes(x = testing_trial, y = looking_time, color = caregiver_seat)) +
+  geom_smooth(se = TRUE) +
+  scale_color_discrete(
+    name = "Sitting Arangement",
+    labels = c(
+      "caregiver_lap_only" = "Caregiver Lap",
+      "seat_alone_only" = "Sitting Alone",
+      "changed_throughout" = "Changed Throughout")
+  ) +
+  labs(
+    x = "Trial Number",
+    y = "Looking Time (in seconds)",
+    title = "Looking Time Across Trials"
+  ) +
+  theme_minimal()
+```
