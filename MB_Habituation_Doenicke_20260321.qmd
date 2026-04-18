@@ -42,18 +42,23 @@ editor_options:
 Explore which functional forms best capture habituation trajectories.
 
 
-## Prepare Data
+##  Library
 ```{r}
 #| results: hide
-
-
 # libraries
 library(dplyr)
 library(ggplot2)
 library(lme4)
 library(splines)
 library(broom.mixed)
+library(flextable)
+```
 
+## Prepare Data
+
+```{r}
+
+#| results: hide
 # set environment
 
 # read CSV
@@ -61,14 +66,7 @@ data <- read.csv("final_merged_manybabies.csv")
 
 # assign factors
 data <- data %>%
-  mutate(across(where(is.character), as.factor))
-
-# harmonize two age-variables into one
-unique(data$age_group_new)
-max(data$age_days)
-
-data <- data %>%
-  dplyr::mutate(
+  mutate(across(where(is.character), as.factor),
     age = cut(
       age_days,
       breaks = c(0, 90, 180, 270, 365, 455, 545, 635, 653),  # boundaries in days
@@ -80,19 +78,9 @@ data <- data %>%
         "12–15 months",
         "15–18 months",
         "18–21 months",
-        "> 21 months"
-      ),
-      right = FALSE
-    )
-  )
-
-data <- data %>%
-  dplyr::mutate(
-    age = dplyr::coalesce(age_group_new, age)
-  )
-
-data <- data %>%
-  dplyr::mutate(
+        "> 21 months"),
+      right = FALSE),
+    age = dplyr::coalesce(age_group_new, age),
     age = factor(age, levels = c(
       "< 3 months",
       "3–6 months",
@@ -101,23 +89,36 @@ data <- data %>%
       "12–15 months",
       "15–18 months",
       "18–21 months",
-      "> 21 months"
-    ))
-  )
-
-# create variable with only testing trials (Training trials [-2, -1, 0] are excluded because they serve familiarization purposes and are not relevant for the main outcome) 
-data <- data %>%
-  dplyr::mutate(
-    testing_trial = ifelse(trial_number > 0, trial_number, NA)
-  )
+      "> 21 months")),
+    testing_trial = ifelse(trial_number > 0, trial_number, NA), # create variable with only testing trials (Training trials [-2, -1, 0] are excluded because they serve familiarization purposes and are not relevant for the main outcome) 
+    log_looking_time = log1p(looking_time), # given the zero inflacted looking times, log1p allows them to be included in the model as log(0) is impossible
+    testing_trial_sc = scale(testing_trial), # scale testing_trial to help model estimation
+    age_days_sc = scale(age_days)) # scale age_days to help model estimation
 
 # remove NA for complete-case analysis
 data_model <- data %>%
   filter(!is.na(looking_time))
+
+```
+
+# Data validation
+
+### Missingness on dependent variable
+```{r validation}
+
+# Distribution of zero looking times and NAs
+table(is.na(data$looking_time))
+table(data$looking_time == 0)
+
+# Are zeros/NAs concentrated in later trials?
+aggregate(looking_time == 0 ~ trial_number, data = data, FUN = mean)
+aggregate(is.na(looking_time) ~ trial_number, data = data, FUN = mean)
+
 ```
 
 ## Simplify Data
 We have roughly 55,000 observations. When testing new code, I can use this smaller sample so things run faster (= use data_sample). Once your code is ready, I will apply it to the full dataset (= use data).
+
 ```{r}
 set.seed(123)
 
@@ -125,9 +126,9 @@ data_sample <- data %>%
   dplyr::sample_n(5000)
 ```
 
-
 ## Plot Overall Habituation Curve
 The plot shows a steel early habituation (steep drop), which flattens at circa trial No. 4. This looks like a possible non-linear relationship!
+
 ```{r}
 ggplot(data, aes(x = testing_trial, y = looking_time)) +
   stat_summary(fun = mean, geom = "line") +
@@ -143,6 +144,64 @@ ggplot(data, aes(x = testing_trial, y = looking_time)) +
   theme_minimal()
 ```
 
+## Plot Individual Habituation Curves
+
+The individual plots show substantial variability in the habituation curves across individuals and time
+
+```{r plot looking times, echo=FALSE}
+
+set.seed(1)
+ids <- sample(unique(data$unique_subject_identifier), 200) # to be able to observe trajectories for a subset of participants
+
+df_sub <- subset(data, unique_subject_identifier %in% ids)
+df_sub <- df_sub[order(df_sub$unique_subject_identifier, df_sub$testing_trial), ]
+
+ggplot(df_sub,
+       aes(x = testing_trial,
+           y = looking_time,
+           group = unique_subject_identifier,
+           color = unique_subject_identifier)) +
+  geom_line(alpha = 0.6) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  ylim(c(0, 25))
+```
+
+## Missingness
+
+```{r missingness, echo=FALSE}
+
+cat_vars <- c("participant_sex", "race", "primarycaregiver_gender", "language_group", "primary_language", "caregiver_seat")
+cont_vars <- c("age_days", "looking_time", "household_size", "primary_language_exposure")
+
+cat_summary <- map_dfr(cat_vars, function(var) {
+  
+  x <- data[[var]]
+  
+  tab <- table(x, useNA = "no")  # excludes NA, added later
+  
+  tibble(Variable = var,
+    Level = names(tab),
+    N = as.integer(tab),
+    Percent = 100 * N / sum(N)) %>%
+    bind_rows(
+      tibble(
+        Variable = var,
+        Level = "Missing",
+        N = sum(is.na(x)),
+        Percent = NA_real_))}) %>%
+  flextable()
+
+cont_summary <- map_dfr(cont_vars, function(var) {
+  
+  tibble(
+    Variable = var,
+    Mean = mean(data[[var]], na.rm = TRUE),
+    SD = sd(data[[var]], na.rm = TRUE),
+    Missing = sum(is.na(data[[var]])))}) %>%
+  flextable()
+
+```
 
 ## Create Overall Habituation Curve Models
 To explore which functional forms best capture habituation trajectories, I model looking time as a function of trial number using a series of regression models. Specifically, I compare linear, quadratic, cubic and other shapes (using splines) relationships the variables.
@@ -154,13 +213,11 @@ model_linear_mixed <- lmer(looking_time ~ testing_trial + (1 | unique_subject_id
 
 model_quadratic_mixed <- lmer(
   looking_time ~ testing_trial + I(testing_trial^2) + (1 | unique_subject_identifier),
-  data = data_model
-)
+  data = data_model)
 
 model_spline_mixed <- lmer(
   looking_time ~ ns(testing_trial, df = 3) + (1 | unique_subject_identifier),
-  data = data_model
-)
+  data = data_model)
 ```
 
 ### Linear Model
