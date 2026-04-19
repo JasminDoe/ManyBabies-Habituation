@@ -297,6 +297,14 @@ model_quadratic_mixed2 <- lmer(
 
 anova(model_quadratic_mixed, model_quadratic_mixed2) # Best fitting model has random slope per ID for testing trial
 
+model_spline_mixed <- lmer(
+  looking_time ~ ns(testing_trial, df = 3) + (1 | project_id) + (1 | lab_id) + (1 | unique_subject_identifier),
+  data = data_model)
+
+model_spline_mixed2 <- lmer(
+  looking_time ~ ns(testing_trial, df = 3) + (1 | project_id) + (1 | lab_id) + (1 + testing_trial_sc | unique_subject_identifier),
+  data = data_model)
+
 # GAM 
 
 gam1 <- bam(log_looking_time ~ s(testing_trial_sc) +
@@ -395,8 +403,8 @@ broom.mixed::tidy(gam2, conf.int = TRUE)
 Here, I compare models based on goodness-of-fit criteria (e.g. AIC).
 
 ```{r}
-AIC(model_linear_mixed2, model_quadratic_mixed2, model_spline_mixed2)
-BIC(model_linear_mixed2, model_quadratic_mixed2, model_spline_mixed2)
+AIC(model_linear_mixed2, model_quadratic_mixed2, model_spline_mixed2, gam2)
+BIC(model_linear_mixed2, model_quadratic_mixed2, model_spline_mixed2, gam2)
 ```
 
 Here, I compare models by visual inspection of fitted trajectories. This allows me to evaluate whether habituation follows a linear decline, shows rapid early decreases with later stabilization, or exhibits more complex patterns.
