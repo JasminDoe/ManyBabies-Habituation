@@ -51,12 +51,14 @@ Explore which functional forms best capture habituation trajectories.
 #| results: hide
 # libraries
 library(dplyr)
+library(tidyr)
 library(ggplot2)
 library(lme4)
 library(splines)
 library(broom.mixed)
 library(flextable)
 library(purrr)
+library(mgcv)
 ```
 
 
@@ -101,8 +103,8 @@ data <- data %>%
       "> 21 months")),
     testing_trial = ifelse(trial_number > 0, trial_number, NA), # create variable with only testing trials (Training trials [-2, -1, 0] are excluded because they serve familiarization purposes and are not relevant for the main outcome) 
     log_looking_time = log1p(looking_time), # given the zero inflacted looking times, log1p allows them to be included in the model as log(0) is impossible
-    testing_trial_sc = scale(testing_trial), # scale testing_trial to help model estimation
-    age_days_sc = scale(age_days)) # scale age_days to help model estimation
+    testing_trial_sc = as.numeric(scale(testing_trial)), # scale testing_trial to help model estimation
+    age_days_sc = as.numeric(scale(age_days))) # scale age_days to help model estimation
 
 # remove NA for complete-case analysis
 data_model <- data %>%
@@ -203,9 +205,11 @@ ggplot(df_sub,
 
 ## Overall missingness
 
+High degree of missingness for project specific variables like household_size and participant_place_of_birth amongst others as these were not included in some of the projects (e.g., household_size is not included in MB4)
 
 
-```{r missingness, echo=FALSE}
+
+```{r overall missingness, echo=FALSE}
 
 # Overall missingness
 
@@ -218,7 +222,34 @@ missing_summary <- data %>%
   mutate(
     Missing_Percent = 100 * Missing_N / nrow(data))
 
+missing_summary
 
+# for inspection
+
+missing_by_project <- data %>%
+  group_by(project_id) %>%
+  summarise(across(
+    everything(),
+    ~ mean(is.na(.))
+  )) %>%
+  pivot_longer(
+    cols = -project_id,
+    names_to = "Variable",
+    values_to = "Missing_rate"
+  )
+
+missing_by_project
+```
+
+
+
+## Descriptive statistics and missingness per variables for inspection
+
+
+
+```{r desc and missingness, echo=FALSE}
+
+cat_vars <- names(data)[!sapply(data, is.numeric)]
 cat_vars <- cat_vars[!cat_vars %in% c("unique_subject_identifier", "stimulus_id", "project_id", "lab_id")]
 cont_vars <- names(data)[ sapply(data, is.numeric)]
 
@@ -265,58 +296,106 @@ To explore which functional forms best capture habituation trajectories, I model
 
 First, I estimate a linear model to assess whether looking time decreases across trials. I then extend this model by including a quadratic term to capture potential curvature in the habituation trajectory. In addition, I fit flexible non-linear models using spline functions to allow for more complex shapes. Importantly, I always use mixed-models with infant-level random intercepts, to account for repeated measurements within infants.
 
+# check if all participants are nested in only one study
 
+
+
+```{r lmer nestedness, echo=FALSE}
+
+data %>%
+  group_by(unique_subject_identifier) %>%
+  summarise(n_projects = n_distinct(project_id))
+
+data %>%
+  group_by(lab_id) %>%
+  summarise(n_projects = n_distinct(project_id))
+
+```
 
 ```{r}
-model_linear_mixed <- lmer(looking_time ~ testing_trial + (1 | unique_subject_identifier), data = data_model)
 
+# linear models
+
+model_linear_mixed <- lmer(log_looking_time ~ testing_trial + (1 | project_id) + (1 | lab_id) + (1 | unique_subject_identifier), data = data_model)
+
+model_linear_mixed2 <- lmer(log_looking_time ~ testing_trial + (1 | project_id) + (1 | lab_id) + (1 + testing_trial_sc | unique_subject_identifier), data = data_model)
+
+anova(model_linear_mixed, model_linear_mixed2) # Best fitting model has random slope per ID for testing trial
+
+# quadratic model
 model_quadratic_mixed <- lmer(
-  looking_time ~ testing_trial + I(testing_trial^2) + (1 | unique_subject_identifier),
+  log_looking_time ~ testing_trial + I(testing_trial^2) + (1 | project_id) + (1 | lab_id) + (1 | unique_subject_identifier),
   data = data_model)
 
-model_spline_mixed <- lmer(
-  looking_time ~ ns(testing_trial, df = 3) + (1 | unique_subject_identifier),
+model_quadratic_mixed2 <- lmer(
+  log_looking_time ~ testing_trial + I(testing_trial^2) + (1 | project_id) + (1 | lab_id) + (1 + testing_trial_sc | unique_subject_identifier),
   data = data_model)
+
+anova(model_quadratic_mixed, model_quadratic_mixed2) # Best fitting model has random slope per ID for testing trial
+
+# GAM 
+
+gam1 <- bam(log_looking_time ~ s(testing_trial_sc) +
+            s(unique_subject_identifier, bs="re") + s(lab_id, bs = "re") + s(project_id, bs = "re"), # random intercepts
+            data=data) 
+
+gam2 <- bam(log_looking_time ~ s(testing_trial_sc) +
+                  s(unique_subject_identifier, bs = "re") + s(lab_id, bs = "re") + s(project_id, bs = "re") +  # random intercepts
+                  s(unique_subject_identifier, testing_trial_sc, bs = "re") +  # random slope
+                  s(lab_id, bs = "re") + s(project_id, bs = "re"),
+                  data = data, method = "fREML")
+
+anova(gam1, gam2)
+
 ```
 
 
 
 ### Linear Model
-- Looking-time decreases significantly across trials (Slope = -0.27 [95% CI -0.28,    -0.27], t = -72.79), which tells us: habituation is happening. 
-- On average, looking-time decreased by approximately 0.27 seconds per trial. 
+- Looking-time decreases significantly across trials (Slope = `r lm$estimate[2]`, t = `r lm$statistic[2]`, which tells us: habituation is happening. 
 - There is substantial variability in baseline looking- times across infants, supporting the inclusion of random intercepts.
-- The average looking-time in the first trial was 9.2 seconds.
+- Back-transformed predictions indicate that the expected looking time at the first trial was `r baseline` seconds.
+
 
 
 ```{r}
-summary(model_linear_mixed)
-broom.mixed::tidy(model_linear_mixed, conf.int = TRUE)
+summary(model_linear_mixed2)
+lm <- broom.mixed::tidy(model_linear_mixed2, conf.int = TRUE)
+lm
+
+# back transform baseline
+b0 <- fixef(model_linear_mixed2)["(Intercept)"]
+baseline <- (exp(b0) - 1)
 ```
 
 
 
 ### Quadratic Model
-- There is a significant decrease in looking time across trials (Slope = -0.49 [95% CI -0.516, -0.459], t = -33.69) and a significant positive quadratic effect (b = 0.013, t = 15.33). 
-- This indicates that looking-time decreased rapidly at early trials and then leveled off over time, consistent with a typical habituation trajectory. 
+- There is a significant decrease in looking time across trials (Slope = `r qm$estimate[2]`, t = `r qm$statistic[2]`) and a significant positive quadratic effect (Slope = `r qm$estimate[3]`, t = `r qm$statistic[3]`).
+- This indicates that looking-time decreased rapidly at early trials and then leveled off over time, consistent with a typical habituation trajectory.
+
 
 
 ```{r}
-summary(model_quadratic_mixed)
-broom.mixed::tidy(model_quadratic_mixed, conf.int = TRUE)
+
+summary(model_quadratic_mixed2)
+qm <- broom.mixed::tidy(model_quadratic_mixed2, conf.int = TRUE)
+qm
 ```
 
 
 
-### Spline Model
+### Natural spline Model
 - There is a significant nonlinear decrease in looking time across trials. 
 - Splines cannot be interpreted as easily.
 - The spline model provided the best fit to the data compared to linear and quadratic models, indicating that habituation follows a nonlinear trajectory characterized by a rapid initial decrease and subsequent leveling off. This pattern is consistent with typical habituation processes.
 
 
+
 ```{r}
 # A mixed-effects model using natural splines revealed. 
-summary(model_spline_mixed)
-broom.mixed::tidy(model_spline_mixed, conf.int = TRUE)
+summary(model_spline_mixed2)
+broom.mixed::tidy(model_spline_mixed2, conf.int = TRUE)
 ```
 
 ```{r}
@@ -350,6 +429,20 @@ ggplot(data, aes(x = testing_trial, y = looking_time)) +
 
 
 
+### Generalised addictive model
+- There is a significant nonlinear decrease in looking time across trials. 
+- Splines cannot be interpreted as easily.
+- The spline model provided the best fit to the data compared to linear and quadratic models, indicating that habituation follows a nonlinear trajectory characterized by a rapid initial decrease and subsequent leveling off. This pattern is consistent with typical habituation processes.
+
+
+
+```{r}
+# Generalised addictive model
+summary(gam2)
+broom.mixed::tidy(gam2, conf.int = TRUE)
+```
+
+
 
 ## Compare  Overall Habituation Curve Model Fit 
 
@@ -358,13 +451,14 @@ Here, I compare models based on goodness-of-fit criteria (e.g. AIC).
 
 
 ```{r}
-AIC(model_linear_mixed, model_quadratic_mixed, model_spline_mixed)
-BIC(model_linear_mixed, model_quadratic_mixed, model_spline_mixed)
+AIC(model_linear_mixed2, model_quadratic_mixed2, model_spline_mixed2)
+BIC(model_linear_mixed2, model_quadratic_mixed2, model_spline_mixed2)
 ```
 
 
 
 Here, I compare models by visual inspection of fitted trajectories. This allows me to evaluate whether habituation follows a linear decline, shows rapid early decreases with later stabilization, or exhibits more complex patterns.
+
 
 
 ```{r}
@@ -377,8 +471,7 @@ data_summary <- data_model %>%
     se_lt = sd_lt / sqrt(n),
     ci_low = mean_lt - 1.96 * se_lt,
     ci_high = mean_lt + 1.96 * se_lt,
-    .groups = "drop"
-  )
+    .groups = "drop")
 
 # Linear Model
 ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
@@ -424,6 +517,56 @@ ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
     breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
   ) +
   theme_minimal()
+
+# Generalised addictive model
+
+# predictive values per trial at population level
+pred_grid <- data.frame(
+  testing_trial_sc = seq(min(data$testing_trial_sc, na.rm = TRUE),
+                         max(data$testing_trial_sc, na.rm = TRUE),
+                         length.out = 200),
+  unique_subject_identifier = data$unique_subject_identifier[1],  # dummy level
+  lab_id                    = data$lab_id[1],
+  project_id                = data$project_id[1])
+
+preds <- predict(gam2,
+                 newdata  = pred_grid,
+                 exclude  = c("s(unique_subject_identifier)",
+                              "s(lab_id)",
+                              "s(project_id)",
+                              "s(unique_subject_identifier,testing_trial_sc)"),
+                 se.fit   = TRUE)
+
+pred_grid$fit  <- preds$fit
+pred_grid$lwr  <- preds$fit - 1.96 * preds$se.fit
+pred_grid$upr  <- preds$fit + 1.96 * preds$se.fit
+
+# backtransform testing trial variable
+sc_mean <- mean(data$testing_trial, na.rm = TRUE)
+sc_sd   <- sd(data$testing_trial,   na.rm = TRUE)
+pred_grid$testing_trial <- pred_grid$testing_trial_sc * sc_sd + sc_mean
+
+# plot
+ggplot() +
+  # Observed means (same as before)
+  geom_point(data = data_summary,
+             aes(x = testing_trial, y = mean_lt), size = 2) +
+  # GAM smooth + CI ribbon
+  geom_ribbon(data = pred_grid,
+              aes(x = testing_trial, ymin = lwr, ymax = upr),
+              alpha = 0.2) +
+  geom_line(data = pred_grid,
+            aes(x = testing_trial, y = fit),
+            linewidth = 0.9) +
+  labs(
+    x     = "Trial Number",
+    y     = "Mean Looking Time",
+    title = "GAM Habituation Trajectory") +
+  coord_cartesian(ylim = c(5, 10)) +
+  scale_x_continuous(
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)) +
+  theme_minimal()
+
 ```
 
 
@@ -431,58 +574,58 @@ ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
 All models in one plot
 
 
+
 ```{r}
+
 ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
   geom_point(size = 2.2, color = "black") +
-  
   geom_smooth(
     aes(color = "Linear", linetype = "Linear"),
-    method = "lm",
-    formula = y ~ x,
-    se = FALSE,
-    linewidth = 1
-  ) +
+    method = "lm", formula = y ~ x,
+    se = FALSE, linewidth = 1) +
   geom_smooth(
     aes(color = "Quadratic", linetype = "Quadratic"),
-    method = "lm",
-    formula = y ~ x + I(x^2),
-    se = FALSE,
-    linewidth = 1
-  ) +
+    method = "lm", formula = y ~ x + I(x^2),
+    se = FALSE, linewidth = 1) +
   geom_smooth(
     aes(color = "Spline", linetype = "Spline"),
-    method = "lm",
-    formula = y ~ splines::ns(x, df = 3),
-    se = FALSE,
-    linewidth = 1
-  ) +
+    method = "lm", formula = y ~ splines::ns(x, df = 3),
+    se = FALSE, linewidth = 1) +
 
+  # GAM plot fitted using data from pred_grid
+  geom_ribbon(
+    data = pred_grid,
+    aes(x = testing_trial, ymin = lwr, ymax = upr),
+    fill  = "purple",
+    alpha = 0.15,
+    inherit.aes = FALSE) +
+  geom_line(
+    data = pred_grid,
+    aes(x = testing_trial, y = fit, color = "GAM", linetype = "GAM"),
+    linewidth = 1) +
   scale_color_manual(
     name = "Model",
     values = c(
-      "Linear" = "darkgreen",
+      "Linear"    = "darkgreen",
       "Quadratic" = "blue",
-      "Spline" = "red"
-    )
-  ) +
+      "Spline"    = "red",
+      "GAM"       = "purple")) +
   scale_linetype_manual(
     name = "Model",
     values = c(
-      "Linear" = "dashed",
+      "Linear"    = "dashed",
       "Quadratic" = "solid",
-      "Spline" = "dotted"
-    )
-  ) +
+      "Spline"    = "dotted",
+      "GAM"       = "longdash")) +
   scale_x_continuous(breaks = 1:16) +
   labs(
-    x = "Trial Number",
-    y = "Mean Looking Time",
-    title = "Habituation Trajectories by Model"
-  ) +
+    x     = "Trial Number",
+    y     = "Mean Looking Time",
+    title = "Habituation Trajectories by Model") +
   coord_cartesian(ylim = c(5, 10)) +
   theme_minimal()
-```
 
+```
 
 
 
