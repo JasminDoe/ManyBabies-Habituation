@@ -55,6 +55,7 @@ library(broom.mixed)
 library(flextable)
 library(purrr)
 library(mgcv)
+library(ggeffects)
 ```
 
 ## Prepare Data
@@ -70,6 +71,7 @@ data <- read.csv("final_merged_manybabies.csv")
 
 # assign factors
 data <- data %>%
+  filter(!trial_type %in% c("TRAIN", "fam")) %>%
   mutate(across(where(is.character), as.factor),
     age = cut(
       age_days,
@@ -498,8 +500,8 @@ model_spline_mixed <- lmer(
   looking_time ~ ns(testing_trial, df = 4) + (1 | project_id) + (1 | lab_id) + (1 | unique_subject_identifier),
   data = data_model)
 
-model_spline_mixed2 <- lmer(
-  looking_time ~ ns(testing_trial, df = 4) + (1 | project_id) + (1 | lab_id) + (1 + testing_trial_sc | unique_subject_identifier),
+model_spline_mixed2 <- lmer(looking_time ~ ns(testing_trial, df = 4) + (1 | project_id) + (1 | lab_id) +
+    (1 + ns(testing_trial, df = 4) | unique_subject_identifier),
   data = data_model)
 
 anova(model_spline_mixed, model_spline_mixed2) # Best fitting model has random slope per ID for testing trial (model_spline_mixed2)
@@ -650,7 +652,7 @@ data_summary <- data_model %>%
     .groups = "drop")
 
 # linear model
-p1 <- ggplot(data_summary, aes(testing_trial, mean_lt)) +
+ggplot(data_summary, aes(testing_trial, mean_lt)) +
   geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.2) +
   geom_point(size = 2) +
   geom_smooth(method = "lm", se = FALSE) +
@@ -661,7 +663,7 @@ p1 <- ggplot(data_summary, aes(testing_trial, mean_lt)) +
   theme_minimal()
 
 # quadractic model
-p2 <- ggplot(data_summary, aes(testing_trial, mean_lt)) +
+ggplot(data_summary, aes(testing_trial, mean_lt)) +
   geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.2) +
   geom_point(size = 2) +
   geom_smooth(method = "lm", formula = y ~ x + I(x^2), se = FALSE) +
@@ -672,7 +674,7 @@ p2 <- ggplot(data_summary, aes(testing_trial, mean_lt)) +
   theme_minimal()
 
 # spline model
-p3 <- ggplot(data_summary, aes(testing_trial, mean_lt)) +
+ggplot(data_summary, aes(testing_trial, mean_lt)) +
   geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.2) +
   geom_point(size = 2) +
   geom_smooth(method = "lm",
@@ -684,10 +686,9 @@ p3 <- ggplot(data_summary, aes(testing_trial, mean_lt)) +
     y = "Mean Looking Time") +
   theme_minimal()
 
-# -----------------------
-# 4. GAM model
-# -----------------------
-p4 <- ggplot(data_model, aes(x = testing_trial, y = looking_time)) +
+
+# gam model
+ggplot(data_model, aes(x = testing_trial, y = looking_time)) +
   geom_point(alpha = 0.2) +
   geom_smooth(
     method = "gam",
@@ -698,14 +699,6 @@ p4 <- ggplot(data_model, aes(x = testing_trial, y = looking_time)) +
     x = "Trial Number",
     y = "Looking Time") +
   theme_minimal()
-
-# -----------------------
-# Print plots
-# -----------------------
-p1
-p2
-p3
-p4
 
 ```
 
@@ -727,18 +720,6 @@ ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
     aes(color = "Spline", linetype = "Spline"),
     method = "lm", formula = y ~ splines::ns(x, df = 3),
     se = FALSE, linewidth = 1) +
-
-  # GAM plot fitted using data from pred_grid
-  geom_ribbon(
-    data = pred_grid,
-    aes(x = testing_trial, ymin = lwr, ymax = upr),
-    fill  = "purple",
-    alpha = 0.15,
-    inherit.aes = FALSE) +
-  geom_line(
-    data = pred_grid,
-    aes(x = testing_trial, y = fit, color = "GAM", linetype = "GAM"),
-    linewidth = 1) +
   scale_color_manual(name = "Model",
     values = c("Linear" = "darkgreen",
                "Quadratic" = "blue",
@@ -769,22 +750,46 @@ Identify factors that explain variability across infants.
 
 ## Habituation by Age
 I will use the age variable that I previously created by harmonizing the two variables age_group_new and age_days
+
+### Spline model with age
+```{r}
+
+model_spline_mixed2.age <- lmer(
+  looking_time ~ ns(testing_trial, df = 4) * age_days_sc +
+    (1 | project_id) +
+    (1 | lab_id) +
+    (1 + ns(testing_trial, df = 4) | unique_subject_identifier),
+  data = data_model
+)
+
+summary(model_spline_mixed2.age)
+```
+
+### Plot of predicted values
+```{r}
+
+pred <- ggpredict(
+  model_spline_mixed2.age,
+  terms = c("testing_trial [all]", "age_days_sc [-1, -0.5, 0, 0.5, 1]"))
+
+plot(pred)
+```
+
+### Plot of raw data
+
 ```{r}
 
 ggplot(data %>% dplyr::filter(testing_trial > 0), 
        aes(x = testing_trial, y = looking_time, color = age)) +
   geom_smooth(se = TRUE) +
   scale_color_discrete(
-    name = "Age"
-  ) +
+    name = "Age") +
   labs(
     x = "Trial Number",
     y = "Looking Time (in seconds)",
-    title = "Looking Time Across Trials"
-  ) +
+    title = "Looking Time Across Trials") +
   scale_x_continuous(
-    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
-  ) +
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)) +
   theme_minimal()
 ```
 
@@ -797,6 +802,7 @@ data %>%
 ```
 
 There are few observations in 15-18 and 18-21 months. I will remove NA category for plotting, and add 15-21 months into a single category to make the sample bigger.
+
 ```{r}
 data <- data %>%
   mutate(new_age = recode(age,
@@ -821,21 +827,44 @@ ggplot(data %>% dplyr::filter(testing_trial > 0, !is.na(age) ),
        aes(x = testing_trial, y = looking_time, color = new_age)) +
   geom_smooth(se = TRUE, level = 0.95) +
   scale_color_discrete(
-    name = "Age"
-  ) +
+    name = "Age") +
   labs(
     x = "Trial Number",
     y = "Looking Time (in seconds)",
-    title = "Looking Time Across Trials"
-  ) +
+    title = "Looking Time Across Trials") +
   scale_x_continuous(
-    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
-  ) +
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)) +
   theme_minimal()
 ```
 
 ## Habituation by Sex of Participant
 There seems to be no sex difference overall! Maybe if we stratify the data by other factors later on.
+
+### Spline model with participant_sex
+```{r}
+
+model_spline_mixed2.sex <- lmer(
+  looking_time ~ ns(testing_trial, df = 4) * participant_sex +
+    (1 | project_id) +
+    (1 | lab_id) +
+    (1 + ns(testing_trial, df = 4) | unique_subject_identifier),
+  data = data_model)
+
+summary(model_spline_mixed2.sex)
+```
+
+### Plot of predicted values
+```{r}
+
+pred.sex <- ggpredict(
+  model_spline_mixed2.sex,
+  terms = c("testing_trial [all]", "participant_sex"))
+
+plot(pred.sex)
+```
+
+### Plot of raw data
+
 ```{r}
 ggplot(data %>% dplyr::filter(testing_trial > 0, !is.na(participant_sex) ), 
        aes(x = testing_trial, y = looking_time, color = participant_sex)) +
@@ -882,6 +911,32 @@ ggplot(data %>% dplyr::filter(
 ```
 
 ## Habituation by Language Group
+
+### Spline model with participant_sex
+```{r}
+
+model_spline_mixed2.lang <- lmer(
+  looking_time ~ ns(testing_trial, df = 4) * language_group +
+    (1 | project_id) +
+    (1 | lab_id) +
+    (1 + ns(testing_trial, df = 4) | unique_subject_identifier),
+  data = data_model, control = lmerControl(optimizer = "bobyqa"))
+
+summary(model_spline_mixed2.lang)
+```
+
+### Plot of predicted values
+```{r}
+
+pred.lang <- ggpredict(
+  model_spline_mixed2.lang,
+  terms = c("testing_trial [all]", "language_group"))
+
+plot(pred.lang)
+```
+
+### Plot of raw data
+
 ```{r}
 # check amount of data per category
 data %>%
@@ -907,8 +962,6 @@ ggplot(data %>% dplyr::filter(!is.na(language_group),
           theme_minimal()
 ```
 
-
-
 # Methodological effects
 Assess how methodological choices influence results.
 
@@ -916,14 +969,50 @@ Assess how methodological choices influence results.
 - 3.2 Do they affect interpretation?
 - 3.3 Do they affect reliability?
 
-
 ## Habituation by Trial Type
+
+### Spline model with trial type
+```{r}
+
+data_model$trial_type <- factor(
+  data_model$trial_type,
+  levels = c("IDS", "ADS", "consistent", "inconsistent", "nonsocial", "social"))
+
+model_spline_mixed2.trialtype <- lmer(
+  looking_time ~ ns(testing_trial, df = 4) * trial_type +
+    (1 | project_id) +
+    (1 | lab_id) +
+    (1 + ns(testing_trial, df = 4) | unique_subject_identifier),
+  data = data_model, control = lmerControl(optimizer = "bobyqa"))
+
+summary(model_spline_mixed2.trialtype)
+```
+
+### Plot of predicted values
+
+```{r}
+
+pred.trialtype <- ggpredict(
+  model_spline_mixed2.trialtype,
+  terms = c("testing_trial [all]", "trial_type"))
+
+plot(pred.trialtype) +
+  scale_color_manual(values = c(
+    "IDS" = "red",
+    "ADS" = "darkgrey",
+    "consistent" = "blue",
+    "inconsistent" = "darkgreen",
+    "nonsocial" = "black",
+    "social" = "purple"))
+```
+
+### Plot of raw data
+
 ```{r}
 # check amount of data per category
 data %>%
 dplyr::filter(testing_trial > 0) %>%
 dplyr::count(trial_type)
-
 
 ggplot(data, aes(x = testing_trial, y = looking_time, color = trial_type)) +
   geom_smooth(se = TRUE) +
@@ -935,21 +1024,18 @@ ggplot(data, aes(x = testing_trial, y = looking_time, color = trial_type)) +
       "consistent" = "Consistent",
       "inconsistent" = "Inconsistent",
       "nonsocial" = "Non-Social",
-      "social" = "Social"
-    )
-  ) +
+      "social" = "Social")) +
   labs(
     x = "Trial Number",
     y = "Looking Time (in seconds)",
-    title = "Looking Time Across Trials"
-  ) +
+    title = "Looking Time Across Trials") +
   scale_x_continuous(
-    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
-  ) +
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)) +
   theme_minimal()
 ```
 
 ## Habituation by Project ID
+
 ```{r}
 ggplot(data, aes(x = testing_trial, y = looking_time, color = project_id)) +
   geom_smooth(se = TRUE) +
@@ -958,30 +1044,61 @@ ggplot(data, aes(x = testing_trial, y = looking_time, color = project_id)) +
   labs(
     x = "Trial Number",
     y = "Looking Time (in seconds)",
-    title = "Looking Time Across Trials"
-  ) +
+    title = "Looking Time Across Trials") +
   scale_x_continuous(
-    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
-  ) +
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)) +
   theme_minimal()
 ```
 
-#### Habituation by Method
+## Habituation by Method
+
+### Spline model with method
+
+```{r}
+
+data_model$method <- factor(
+  data_model$method,
+    labels = c(
+      "eyetracking" = "Eyetracking",
+      "hpp" = "Headturn preference paradigm",
+      "singlescreen" = "Single screen"))
+
+model_spline_mixed2.method <- lmer(
+  looking_time ~ ns(testing_trial, df = 4) * method +
+    (1 | project_id) +
+    (1 | lab_id) +
+    (1 + ns(testing_trial, df = 4) | unique_subject_identifier),
+  data = data_model, control = lmerControl(optimizer = "bobyqa"))
+
+summary(model_spline_mixed2.method)
+```
+
+### Plot of predicted values
+
+```{r}
+
+pred.method <- ggpredict(
+  model_spline_mixed2.method,
+  terms = c("testing_trial [all]", "method"))
+
+plot(pred.method) +
+  scale_color_manual(values = c(
+    "Eyetracking" = "red",
+    "Headturn preference paradigm" = "darkgreen",
+    "Single screen" = "blue"))
+```
+
+### plot raw data
+
 ```{r}
 ggplot(data, aes(x = testing_trial, y = looking_time, color = method)) +
   geom_smooth(se = TRUE) +
   scale_color_discrete(
-    name = "Method",
-    labels = c(
-      "eyetracking" = "Eyetracking",
-      "hpp" = "Head-Turn Preference Paradigm",
-      "singlescreen" = "Single Screen")
-  ) +
+    name = "Method") +
   labs(
     x = "Trial Number",
     y = "Looking Time (in seconds)",
-    title = "Looking Time Across Trials"
-  ) +
+    title = "Looking Time Across Trials") +
    scale_x_continuous(
     breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
   ) +
