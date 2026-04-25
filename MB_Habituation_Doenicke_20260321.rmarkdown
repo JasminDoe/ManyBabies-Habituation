@@ -71,6 +71,7 @@ library(mgcv)
 
 #| results: hide
 # set environment
+setwd("~/Documents/GitHub/ManyBabies-Habituation")
 
 # read CSV
 data <- read.csv("final_merged_manybabies.csv")
@@ -103,8 +104,12 @@ data <- data %>%
       "> 21 months")),
     testing_trial = ifelse(trial_number > 0, trial_number, NA), # create variable with only testing trials (Training trials [-2, -1, 0] are excluded because they serve familiarization purposes and are not relevant for the main outcome) 
     log_looking_time = log1p(looking_time), # given the zero inflacted looking times, log1p allows them to be included in the model as log(0) is impossible
-    testing_trial_sc = as.numeric(scale(testing_trial)), # scale testing_trial to help model estimation
+    testing_trial_sc = scale(testing_trial), # scale testing_trial to help model estimation
     age_days_sc = as.numeric(scale(age_days))) # scale age_days to help model estimation
+
+trial_mean <- attr(data$testing_trial_sc, "scaled:center")
+trial_sd   <- attr(data$testing_trial_sc, "scaled:scale")
+data$testing_trial_sc <- as.numeric(data$testing_trial_sc)
 
 # remove NA for complete-case analysis
 data_model <- data %>%
@@ -127,8 +132,16 @@ table(data$looking_time == 0)
 
 # Are zeros/NAs concentrated in later trials?
 aggregate(looking_time == 0 ~ trial_number, data = data, FUN = mean)
-aggregate(is.na(looking_time) ~ trial_number, data = data, FUN = mean)
+agg <- aggregate(is.na(looking_time) ~ trial_number, data = data, FUN = mean)
+agg
 
+names(agg)[2] <- "na_prop"
+
+ggplot(agg %>% subset(trial_number >= 1), aes(x = trial_number, y = na_prop)) +
+  geom_line() +
+  geom_point() +
+  labs(x = "Trial number",
+       y = "Proportion NA in looking_time")
 ```
 
 
@@ -158,13 +171,10 @@ ggplot(data, aes(x = testing_trial, y = looking_time)) +
   stat_summary(fun = mean, geom = "line") +
   stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2) +
   scale_x_continuous(
-    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
-  ) +
-  labs(
-    x = "Trial Number",
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)) +
+  labs(x = "Trial Number",
     y = "Looking Time (in seconds)",
-    title = "Looking Time Across Trials"
-  ) +
+    title = "Looking Time Across Trials") +
   theme_minimal()
 
 ```
@@ -203,7 +213,7 @@ ggplot(df_sub,
 
 - Before imputing the variables we will need to do a lot of data cleaning for primary_language, race, participant_place_of_birth, parent1_education, parent2_education
 
-## Overall missingness
+### Overall missingness
 
 High degree of missingness for project specific variables like household_size and participant_place_of_birth amongst others as these were not included in some of the projects (e.g., household_size is not included in MB4)
 
@@ -212,31 +222,38 @@ High degree of missingness for project specific variables like household_size an
 ```{r overall missingness, echo=FALSE}
 
 # Overall missingness
-
 missing_summary <- data %>%
   summarise(across(everything(), ~ sum(is.na(.)))) %>%
   pivot_longer(
     cols = everything(),
     names_to = "Variable",
     values_to = "Missing_N") %>%
-  mutate(
-    Missing_Percent = 100 * Missing_N / nrow(data))
+  mutate(Missing_Percent = 100 * Missing_N / nrow(data)) %>%
+  flextable()
 
 missing_summary
 
-# for inspection
+```
 
+
+
+### Missingness by project
+
+
+
+```{r}
+
+# for inspection
 missing_by_project <- data %>%
   group_by(project_id) %>%
   summarise(across(
     everything(),
-    ~ mean(is.na(.))
-  )) %>%
+    ~ mean(is.na(.)))) %>%
   pivot_longer(
     cols = -project_id,
     names_to = "Variable",
-    values_to = "Missing_rate"
-  )
+    values_to = "Missing_rate") %>%
+  flextable()
 
 missing_by_project
 ```
@@ -296,24 +313,39 @@ To explore which functional forms best capture habituation trajectories, I model
 
 First, I estimate a linear model to assess whether looking time decreases across trials. I then extend this model by including a quadratic term to capture potential curvature in the habituation trajectory. In addition, I fit flexible non-linear models using spline functions to allow for more complex shapes. Importantly, I always use mixed-models with infant-level random intercepts, to account for repeated measurements within infants.
 
-# check if all participants are nested in only one study
+### check if all participants are nested in only one study
 
 
 
-```{r lmer nestedness, echo=FALSE}
-
+```{r lmer nestedness ID, echo=FALSE}
 data %>%
   group_by(unique_subject_identifier) %>%
-  summarise(n_projects = n_distinct(project_id))
+  summarise(n_projects = n_distinct(project_id)) %>%
+  filter(n_projects > 1)
+```
+
+
+
+### check if labs participated in more than one study
+
+
+
+```{r lmer nestedness lab_id, echo=FALSE}
 
 data %>%
   group_by(lab_id) %>%
-  summarise(n_projects = n_distinct(project_id))
+  summarise(n_projects = n_distinct(project_id)) %>%
+  filter(n_projects > 1)
 
 ```
 
-```{r}
 
+
+### linear model
+
+
+
+```{r linear model}
 # linear models
 
 model_linear_mixed <- lmer(log_looking_time ~ testing_trial + (1 | project_id) + (1 | lab_id) + (1 | unique_subject_identifier), data = data_model)
@@ -321,7 +353,15 @@ model_linear_mixed <- lmer(log_looking_time ~ testing_trial + (1 | project_id) +
 model_linear_mixed2 <- lmer(log_looking_time ~ testing_trial + (1 | project_id) + (1 | lab_id) + (1 + testing_trial_sc | unique_subject_identifier), data = data_model)
 
 anova(model_linear_mixed, model_linear_mixed2) # Best fitting model has random slope per ID for testing trial
+```
 
+
+
+### quadratic model
+
+
+
+```{r quadractic model}
 # quadratic model
 model_quadratic_mixed <- lmer(
   log_looking_time ~ testing_trial + I(testing_trial^2) + (1 | project_id) + (1 | lab_id) + (1 | unique_subject_identifier),
@@ -332,44 +372,240 @@ model_quadratic_mixed2 <- lmer(
   data = data_model)
 
 anova(model_quadratic_mixed, model_quadratic_mixed2) # Best fitting model has random slope per ID for testing trial
+```
 
+
+
+### spline model
+
+#### check number of knots 
+
+
+
+```{r number knots, echo=FALSE}
+
+fit_models <- function(df_values, data) {
+  models_m1 <- list()
+  models_m2 <- list()
+  warnings_log <- list()
+  
+  for (d in df_values) {
+    
+    # Model 1: intercepts only
+    fml_m1 <- as.formula(paste0(
+      "log_looking_time ~ ns(testing_trial_sc, df = ", d, ") + ",
+      "(1 | project_id) + (1 | lab_id) + (1 | unique_subject_identifier)"))
+    
+    # Model 2: linear slope for subjects
+    fml_m2 <- as.formula(paste0(
+      "log_looking_time ~ ns(testing_trial_sc, df = ", d, ") + ",
+      "(1 | project_id) + (1 | lab_id) + (1 + testing_trial_sc | unique_subject_identifier)"
+    ))
+    
+    w1 <- character(0)
+    w2 <- character(0)
+    
+    models_m1[[paste0("df_", d)]] <- withCallingHandlers(
+      lmer(fml_m1, data = data, control = lmerControl(optimizer = "bobyqa")),
+      warning = function(e) { w1 <<- c(w1, conditionMessage(e)); invokeRestart("muffleWarning") }
+    )
+    
+    models_m2[[paste0("df_", d)]] <- withCallingHandlers(
+      lmer(fml_m2, data = data, control = lmerControl(optimizer = "bobyqa")),
+      warning = function(e) { w2 <<- c(w2, conditionMessage(e)); invokeRestart("muffleWarning") }
+    )
+    
+    warnings_log[[paste0("df_", d)]] <- list(m1 = w1, m2 = w2)
+  }
+  
+  return(list(m1 = models_m1, m2 = models_m2, warnings = warnings_log))
+}
+
+result <- fit_models(1:6, data)
+
+# Check warnings per model type
+lapply(result$warnings, function(w) list(m1 = w$m1, m2 = w$m2))
+
+# Compare m1 vs m2 for each df
+comparisons <- lapply(names(result$m1), function(nm) {
+  anova(result$m1[[nm]], result$m2[[nm]])
+})
+names(comparisons) <- names(result$m1)
+comparisons
+
+# ── Model comparison
+
+# Within m1: compare across df values
+do.call(anova, unname(result$m1))
+
+# Within m2: compare across df values
+do.call(anova, unname(result$m2))
+
+# M1 vs M2 within each df
+comparisons <- lapply(names(result$m1), function(nm) {
+  cat("\n---", nm, "---\n")
+  print(anova(result$m1[[nm]], result$m2[[nm]]))
+})
+
+# plot AIC and BIC
+
+aic_bic_df <- data.frame(
+  df = 1:6,
+  M1_AIC = sapply(result$m1, AIC),
+  M2_AIC = sapply(result$m2, AIC),
+  M1_BIC = sapply(result$m1, BIC),
+  M2_BIC = sapply(result$m2, BIC)) %>%
+  pivot_longer(-df, names_to = c("model", "metric"), names_sep = "_") %>%
+  rename(value = value)
+
+ggplot(aic_bic_df, aes(x = df, y = value, color = model, linetype = metric, group = interaction(model, metric))) +
+  geom_point(size = 3) +
+  geom_line(linewidth = 1) +
+  scale_x_continuous(breaks = 1:6) +
+  theme_minimal() +
+  labs(x = "Spline df", y = "Value", color = "Random effects", linetype = "Criterion",
+       title = "AIC and BIC across models")
+```
+
+
+
+#### Check visual fit
+
+
+
+```{r model plots, echo=FALSE}
+
+good_models_m1 <- names(result$m1)[sapply(result$m1, function(m) {
+  !isSingular(m) && is.null(m@optinfo$conv$lme4$messages)
+})]
+
+good_models_m2 <- names(result$m2)[sapply(result$m2, function(m) {
+  !isSingular(m) && is.null(m@optinfo$conv$lme4$messages)
+})]
+
+newdat <- data.frame(
+  testing_trial_sc = seq(
+    min(data$testing_trial_sc, na.rm = TRUE),
+    max(data$testing_trial_sc, na.rm = TRUE),
+    length.out = 100
+  )
+) %>%
+  mutate(testing_trial = testing_trial_sc * trial_sd + trial_mean)
+
+# Verify before plotting
+range(newdat$testing_trial)
+
+preds_m1 <- lapply(good_models_m1, function(nm) {
+  mod <- result$m1[[nm]]
+  nd <- newdat
+  nd$fit <- predict(mod, newdata = nd, re.form = NA)
+  nd$model <- nm
+  nd
+})
+names(preds_m1) <- good_models_m1
+
+preds_m2 <- lapply(good_models_m2, function(nm) {
+  mod <- result$m2[[nm]]
+  nd <- newdat
+  nd$fit <- predict(mod, newdata = nd, re.form = NA)
+  nd$model <- nm
+  nd
+})
+names(preds_m2) <- good_models_m2
+
+plot_df_m1 <- do.call(rbind, preds_m1)
+plot_df_m2 <- do.call(rbind, preds_m2)
+
+summary_df <- data %>%
+  group_by(testing_trial) %>%
+  summarise(
+    mean_looking = mean(log_looking_time, na.rm = TRUE),
+    sd = sd(log_looking_time, na.rm = TRUE),
+    n = n(),
+    se = sd / sqrt(n),
+    ci = 1.96 * se,
+    .groups = "drop"
+  )
+
+# ── Plot m1 
+
+ggplot() +
+  geom_ribbon(data = summary_df, aes(x = testing_trial, ymin = mean_looking - ci, ymax = mean_looking + ci), alpha = 0.2) +
+  geom_point(data = summary_df, aes(x = testing_trial, y = mean_looking), size = 1.5) +
+  geom_line(data = summary_df, aes(x = testing_trial, y = mean_looking), linewidth = 0.8) +
+  geom_line(data = plot_df_m1, aes(x = testing_trial, y = fit, color = model), linewidth = 1) +
+  ylim(1.3, 2.2) +
+  theme_minimal() +
+  labs(x = "Testing trial", y = "Log looking time", color = "Spline df",
+       title = "M1: Intercepts only")
+
+# ── Plot m2
+
+ggplot() +
+  geom_ribbon(data = summary_df, aes(x = testing_trial, ymin = mean_looking - ci, ymax = mean_looking + ci), alpha = 0.2) +
+  geom_point(data = summary_df, aes(x = testing_trial, y = mean_looking), size = 1.5) +
+  geom_line(data = summary_df, aes(x = testing_trial, y = mean_looking), linewidth = 0.8) +
+  geom_line(data = plot_df_m2, aes(x = testing_trial, y = fit, color = model), linewidth = 1) +
+  ylim(1.3, 2.2) +
+  theme_minimal() +
+  labs(x = "Testing trial", y = "Log looking time", color = "Spline df",
+       title = "M2: Linear slope for subjects")
+
+```
+
+```{r spline model}
 model_spline_mixed <- lmer(
-  looking_time ~ ns(testing_trial, df = 3) + (1 | project_id) + (1 | lab_id) + (1 | unique_subject_identifier),
+  looking_time ~ ns(testing_trial, df = 4) + (1 | project_id) + (1 | lab_id) + (1 | unique_subject_identifier),
   data = data_model)
 
 model_spline_mixed2 <- lmer(
-  looking_time ~ ns(testing_trial, df = 3) + (1 | project_id) + (1 | lab_id) + (1 + testing_trial_sc | unique_subject_identifier),
+  looking_time ~ ns(testing_trial, df = 4) + (1 | project_id) + (1 | lab_id) + (1 + testing_trial_sc | unique_subject_identifier),
   data = data_model)
+
+anova(model_spline_mixed, model_spline_mixed2) # Best fitting model has random slope per ID for testing trial (model_spline_mixed2)
+```
+
+
+
+### generalised additive model
+
+
+
+```{r GAM}
 
 # GAM 
 
-gam1 <- bam(log_looking_time ~ s(testing_trial_sc) +
+gam1 <- bam(log_looking_time ~ s(testing_trial_sc, k = 5) +
             s(unique_subject_identifier, bs="re") + s(lab_id, bs = "re") + s(project_id, bs = "re"), # random intercepts
-            data=data) 
+            data=data, method = "fREML") 
 
-gam2 <- bam(log_looking_time ~ s(testing_trial_sc) +
-                  s(unique_subject_identifier, bs = "re") + s(lab_id, bs = "re") + s(project_id, bs = "re") +  # random intercepts
-                  s(unique_subject_identifier, testing_trial_sc, bs = "re") +  # random slope
-                  s(lab_id, bs = "re") + s(project_id, bs = "re"),
-                  data = data, method = "fREML")
-
-anova(gam1, gam2)
+#gam2 <- bam(log_looking_time ~ s(testing_trial_sc, k = 5) +
+#                     s(unique_subject_identifier, bs="re") +
+#                     s(unique_subject_identifier, testing_trial_sc, bs="fs", k = 2) +
+#                     s(lab_id, bs="re") +
+#                     s(project_id, bs="re"),
+#                     data = data,
+#                     method = "fREML")
 
 ```
 
 
 
+
+## Results
+
 ### Linear Model
-- Looking-time decreases significantly across trials (Slope = `r lm$estimate[2]`, t = `r lm$statistic[2]`, which tells us: habituation is happening. 
-- There is substantial variability in baseline looking- times across infants, supporting the inclusion of random intercepts.
-- Back-transformed predictions indicate that the expected looking time at the first trial was `r baseline` seconds.
 
 
 
 ```{r}
+
 summary(model_linear_mixed2)
 lm <- broom.mixed::tidy(model_linear_mixed2, conf.int = TRUE)
 lm
+
+lm_slope <- lm$estimate[2]
+lm_t_val <- lm$statistic[2]
 
 # back transform baseline
 b0 <- fixef(model_linear_mixed2)["(Intercept)"]
@@ -378,9 +614,11 @@ baseline <- (exp(b0) - 1)
 
 
 
+- Looking-time decreases significantly across trials (Slope = `r lm_slope`, t = `r lm_t_val`, which tells us: habituation is happening. 
+- There is substantial variability in baseline looking- times across infants, supporting the inclusion of random intercepts.
+- Back-transformed predictions indicate that the expected looking time at the first trial was `r baseline` seconds.
+
 ### Quadratic Model
-- There is a significant decrease in looking time across trials (Slope = `r qm$estimate[2]`, t = `r qm$statistic[2]`) and a significant positive quadratic effect (Slope = `r qm$estimate[3]`, t = `r qm$statistic[3]`).
-- This indicates that looking-time decreased rapidly at early trials and then leveled off over time, consistent with a typical habituation trajectory.
 
 
 
@@ -389,14 +627,21 @@ baseline <- (exp(b0) - 1)
 summary(model_quadratic_mixed2)
 qm <- broom.mixed::tidy(model_quadratic_mixed2, conf.int = TRUE)
 qm
+
+qm_s_estimate <- lm$estimate[2]
+qm_s_t_val <- lm$statistic[2]
+
+qm_qestimate <- lm$estimate[2]
+qm_q_t_val <- lm$statistic[2]
+
 ```
 
 
 
+- There is a significant decrease in looking time across trials (Slope = `r qm_s_estimate`, t = `r qm_s_t_val`) and a significant positive quadratic effect (Slope = `r qm_qestimate`, t = `r qm_q_t_val`).
+- This indicates that looking-time decreased rapidly at early trials and then leveled off over time, consistent with a typical habituation trajectory.
+
 ### Natural spline Model
-- There is a significant nonlinear decrease in looking time across trials. 
-- Splines cannot be interpreted as easily.
-- The spline model provided the best fit to the data compared to linear and quadratic models, indicating that habituation follows a nonlinear trajectory characterized by a rapid initial decrease and subsequent leveling off. This pattern is consistent with typical habituation processes.
 
 
 
@@ -406,32 +651,42 @@ summary(model_spline_mixed2)
 broom.mixed::tidy(model_spline_mixed2, conf.int = TRUE)
 ```
 
+
+
+- There is a significant nonlinear decrease in looking time across trials. 
+- Splines cannot be interpreted as easily.
+- The spline model provided the best fit to the data compared to linear and quadratic models, indicating that habituation follows a nonlinear trajectory characterized by a rapid initial decrease and subsequent leveling off. This pattern is consistent with typical habituation processes.
+
+
+
 ```{r}
+
 # Plot Spline Model
 ggplot(data_model, aes(x = testing_trial, y = looking_time)) +
   geom_smooth(method = "lm", 
-              formula = y ~ splines::ns(x, df = 3), 
+              formula = y ~ splines::ns(x, df = 4), 
               se = TRUE) +
   theme_minimal()
+
 ```
 
 ```{r}
+
 # Plot Spline Model on top of observed data
 ggplot(data, aes(x = testing_trial, y = looking_time)) +
   stat_summary(fun = mean, geom = "line") +
   stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2) +
   scale_x_continuous(
-    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
-  ) +
+    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)) +
   labs(
     x = "Trial Number",
     y = "Looking Time (in seconds)",
-    title = "Looking Time Across Trials"
-  ) +
+    title = "Looking Time Across Trials") +
   geom_smooth(method = "lm", 
-              formula = y ~ splines::ns(x, df = 3), 
+              formula = y ~ splines::ns(x, df = 4), 
               se = TRUE) +
   theme_minimal()
+
 # Here, I am showing the average observed habituation pattern and overlaying a smooth model-based curve to see how well a nonlinear trajectory captures it. 
 ```
 
@@ -445,9 +700,11 @@ ggplot(data, aes(x = testing_trial, y = looking_time)) +
 
 
 ```{r}
+
 # Generalised additive model
-summary(gam2)
-broom.mixed::tidy(gam2, conf.int = TRUE)
+summary(gam1)
+broom.mixed::tidy(gam1, conf.int = TRUE)
+
 ```
 
 
@@ -459,8 +716,10 @@ Here, I compare models based on goodness-of-fit criteria (e.g. AIC).
 
 
 ```{r}
-AIC(model_linear_mixed2, model_quadratic_mixed2, model_spline_mixed2, gam2)
-BIC(model_linear_mixed2, model_quadratic_mixed2, model_spline_mixed2, gam2)
+
+AIC(model_linear_mixed2, model_quadratic_mixed2, model_spline_mixed2, gam1)
+BIC(model_linear_mixed2, model_quadratic_mixed2, model_spline_mixed2, gam1)
+
 ```
 
 
@@ -470,110 +729,75 @@ Here, I compare models by visual inspection of fitted trajectories. This allows 
 
 
 ```{r}
+
 data_summary <- data_model %>%
   group_by(testing_trial) %>%
   summarise(
     mean_lt = mean(looking_time, na.rm = TRUE),
-    sd_lt = sd(looking_time, na.rm = TRUE),
-    n = sum(!is.na(looking_time)),
-    se_lt = sd_lt / sqrt(n),
-    ci_low = mean_lt - 1.96 * se_lt,
+    sd_lt   = sd(looking_time, na.rm = TRUE),
+    n       = sum(!is.na(looking_time)),
+    se_lt   = sd_lt / sqrt(n),
+    ci_low  = mean_lt - 1.96 * se_lt,
     ci_high = mean_lt + 1.96 * se_lt,
     .groups = "drop")
 
-# Linear Model
-ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
+# linear model
+p1 <- ggplot(data_summary, aes(testing_trial, mean_lt)) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.2) +
   geom_point(size = 2) +
-  geom_smooth(method = "lm", formula = y ~ x, se = TRUE, level = 0.95) +
+  geom_smooth(method = "lm", se = FALSE) +
   labs(
+    title = "Linear Habituation Trajectory",
     x = "Trial Number",
-    y = "Mean Looking Time",
-    title = "Linear Habituation Trajectory"
-  ) +
-  coord_cartesian(ylim = c(5, 10)) +
-   scale_x_continuous(
-    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
-  ) +
+    y = "Mean Looking Time") +
   theme_minimal()
 
-# Quadratic Model
-ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
+# quadractic model
+p2 <- ggplot(data_summary, aes(testing_trial, mean_lt)) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.2) +
   geom_point(size = 2) +
-  geom_smooth(method = "lm", formula = y ~ x + I(x^2), se = TRUE, level = 0.95) +
+  geom_smooth(method = "lm", formula = y ~ x + I(x^2), se = FALSE) +
   labs(
+    title = "Quadratic Habituation Trajectory",
     x = "Trial Number",
-    y = "Mean Looking Time",
-    title = "Quadratic Habituation Trajectory"
-  ) +
-  coord_cartesian(ylim = c(5, 10)) +
-   scale_x_continuous(
-    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
-  ) +
+    y = "Mean Looking Time") +
   theme_minimal()
 
-# Spline Model
-ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
+# spline model
+p3 <- ggplot(data_summary, aes(testing_trial, mean_lt)) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.2) +
   geom_point(size = 2) +
-  geom_smooth(method = "lm", formula = y ~ splines::ns(x, df = 3), se = TRUE, level = 0.95) +
+  geom_smooth(method = "lm",
+              formula = y ~ splines::ns(x, df = 3),
+              se = FALSE) +
   labs(
+    title = "Spline Habituation Trajectory",
     x = "Trial Number",
-    y = "Mean Looking Time",
-    title = "Spline Model Habituation Trajectory"
-  ) +
-  coord_cartesian(ylim = c(5, 10)) +
-   scale_x_continuous(
-    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)
-  ) +
+    y = "Mean Looking Time") +
   theme_minimal()
 
-# Generalised additive model
-
-# predictive values per trial at population level
-pred_grid <- data.frame(
-  testing_trial_sc = seq(min(data$testing_trial_sc, na.rm = TRUE),
-                         max(data$testing_trial_sc, na.rm = TRUE),
-                         length.out = 200),
-  unique_subject_identifier = data$unique_subject_identifier[1],  # dummy level
-  lab_id                    = data$lab_id[1],
-  project_id                = data$project_id[1])
-
-preds <- predict(gam2,
-                 newdata  = pred_grid,
-                 exclude  = c("s(unique_subject_identifier)",
-                              "s(lab_id)",
-                              "s(project_id)",
-                              "s(unique_subject_identifier,testing_trial_sc)"),
-                 se.fit   = TRUE)
-
-pred_grid$fit  <- preds$fit
-pred_grid$lwr  <- preds$fit - 1.96 * preds$se.fit
-pred_grid$upr  <- preds$fit + 1.96 * preds$se.fit
-
-# backtransform testing trial variable
-sc_mean <- mean(data$testing_trial, na.rm = TRUE)
-sc_sd   <- sd(data$testing_trial,   na.rm = TRUE)
-pred_grid$testing_trial <- pred_grid$testing_trial_sc * sc_sd + sc_mean
-
-# plot
-ggplot() +
-  # Observed means (same as before)
-  geom_point(data = data_summary,
-             aes(x = testing_trial, y = mean_lt), size = 2) +
-  # GAM smooth + CI ribbon
-  geom_ribbon(data = pred_grid,
-              aes(x = testing_trial, ymin = lwr, ymax = upr),
-              alpha = 0.2) +
-  geom_line(data = pred_grid,
-            aes(x = testing_trial, y = fit),
-            linewidth = 0.9) +
+# -----------------------
+# 4. GAM model
+# -----------------------
+p4 <- ggplot(data_model, aes(x = testing_trial, y = looking_time)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(
+    method = "gam",
+    formula = y ~ s(x, k = 5, bs = "cs"),
+    se = TRUE) +
   labs(
-    x     = "Trial Number",
-    y     = "Mean Looking Time",
-    title = "GAM Habituation Trajectory") +
-  coord_cartesian(ylim = c(5, 10)) +
-  scale_x_continuous(
-    breaks = seq(1, max(data$testing_trial, na.rm = TRUE), by = 1)) +
+    title = "GAM Habituation Trajectory (raw data)",
+    x = "Trial Number",
+    y = "Looking Time") +
   theme_minimal()
+
+# -----------------------
+# Print plots
+# -----------------------
+p1
+p2
+p3
+p4
 
 ```
 
@@ -611,25 +835,21 @@ ggplot(data_summary, aes(x = testing_trial, y = mean_lt)) +
     data = pred_grid,
     aes(x = testing_trial, y = fit, color = "GAM", linetype = "GAM"),
     linewidth = 1) +
-  scale_color_manual(
-    name = "Model",
-    values = c(
-      "Linear"    = "darkgreen",
-      "Quadratic" = "blue",
-      "Spline"    = "red",
-      "GAM"       = "purple")) +
+  scale_color_manual(name = "Model",
+    values = c("Linear" = "darkgreen",
+               "Quadratic" = "blue",
+               "Spline" = "red",
+               "GAM" = "purple")) +
   scale_linetype_manual(
     name = "Model",
-    values = c(
-      "Linear"    = "dashed",
-      "Quadratic" = "solid",
-      "Spline"    = "dotted",
-      "GAM"       = "longdash")) +
+    values = c("Linear" = "dashed",
+               "Quadratic" = "solid",
+               "Spline" = "dotted",
+               "GAM" = "longdash")) +
   scale_x_continuous(breaks = 1:16) +
-  labs(
-    x     = "Trial Number",
-    y     = "Mean Looking Time",
-    title = "Habituation Trajectories by Model") +
+  labs(x = "Trial Number",
+       y = "Mean Looking Time",
+       title = "Habituation Trajectories by Model") +
   coord_cartesian(ylim = c(5, 10)) +
   theme_minimal()
 
@@ -650,6 +870,7 @@ I will use the age variable that I previously created by harmonizing the two var
 
 
 ```{r}
+
 ggplot(data %>% dplyr::filter(testing_trial > 0), 
        aes(x = testing_trial, y = looking_time, color = age)) +
   geom_smooth(se = TRUE) +
