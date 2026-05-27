@@ -1,51 +1,37 @@
 # ManyBabies Habituation Analysis
 
 ## Overview
-This repository contains the analysis, documentation, and outputs for the ManyBabies Habituation project. The study examines infant habituation using reproducible statistical methods implemented in R and Quarto.
+This repository contains the analysis, documentation, and outputs for the ManyBabies Habituation project. The study examines infant habituation using reproducible statistical methods implemented in R and Quarto. This project examines infant habituation using looking time data from a harmonised ManyBabies dataset. The analysis was conducted in R and Quarto as part of a ManyBabies / ManyAnalysts team effort.
 
-## Repository Contents
 
-- **MB_Habituation_Doenicke_20260321.qmd**  
-  Quarto source file containing the full analysis, including data preparation, statistical modeling, and visualizations.
+[**Open the full HTML report**](https://jasmindoe.github.io/ManyBabies-Habituation/MB_Habituation_Aussems_Bhattacharya_Doenicke_Elsherif_Havron_Oliveira.html)
 
-- **MB_Habituation_Doenicke_20260321.html**  
-  Rendered output of the Quarto document.
 
-- **ManyBabies Merged Data Dictionary.pdf**  
-  Documentation describing the variables used in the merged dataset.
+## Main file
 
-- **README.md**  
-  Project documentation.
+`MB_Habituation_Aussems_Bhattacharya_Doenicke_Elsherif_Havron_Oliveira.html`
+
+Rendered HTML report containing the full analysis, models, figures, and results.
+
+## Additional files
+
+`ManyBabies Merged Data Dictionary.pdf`
+
+Documentation for the variables used in the merged dataset.
+
+`final_merged_manybabies.csv`
+
+Merged dataset used for the analysis.
+
+`previous/`
+
+Older versions of the analysis files.
 
 ## Methods
-The analyses include:
 
-- Data preprocessing and descriptive analyses  
-- Linear mixed-effects models  
-- Spline-based regression models  
-- Generalized Additive Models (GAMs)  
-- Model comparison and evaluation  
+The analysis includes data preprocessing, descriptive analyses, linear mixed effects models, spline based regression models, Generalized Additive Models, and model comparison.
 
 ## Requirements
 
-### Software
-- R (version 4.2 or later)
-- RStudio
-- Quarto
+The analysis was conducted using R, RStudio, and Quarto.
 
-### R Packages
-```r
-install.packages(c(
-  "tidyverse",
-  "lme4",
-  "lmerTest",
-  "mgcv",
-  "splines",
-  "ggplot2",
-  "readr",
-  "dplyr",
-  "tidyr",
-  "knitr",
-  "broom",
-  "performance"
-))
