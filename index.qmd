@@ -1,0 +1,90 @@
+---
+title: >
+  ManyBabies Habituation Project
+
+subtitle: >
+  This project aims to explore infant habituation through looking times using a large harmonised dataset from ManyBabies 1, ManyBabies 3, and ManyBabies 4. Study-relevant materials can be found on the Open Science Framework: https://osf.io/8xm4r
+
+author:
+  - name: Suzanne Aussems
+    affiliation:
+      - Department of Psychology, University of Warwick
+    email: s.aussems.1@warwick.ac.uk
+    orcid: https://orcid.org/0000-0002-0781-5849
+    osf: https://osf.io/zm2k6/
+
+  - name: Piyali Bhattacharya
+    affiliation:
+      - School of Psychology, University of Birmingham
+    email: piya.bhattacharya4@gmail.com
+    orcid: https://orcid.org/0000-0002-1410-4914
+    osf: https://osf.io/at8bf/
+
+  - name: Jasmin Dönicke
+    affiliation:
+      - University Medical Center Mainz
+    email: jasminabuaishah@gmail.com
+    orcid: https://orcid.org/0009-0006-0721-0790
+
+  - name: Naomi Havron
+    affiliation:
+      - Department of Psychology, University of Haifa
+    email: nhavron@psy.haifa.ac.il
+    orcid: https://orcid.org/0000-0001-6429-1546
+    osf: https://osf.io/89n5y/
+
+  - name: Mahmoud Elsherif
+    affiliation:
+      - School of Psychology, University of Birmingham
+    email: mahmoud.medhat.elsherif@gmail.com
+    orcid: https://orcid.org/0000-0002-0540-3998
+    osf: https://osf.io/e7bs8/
+
+  - name: Catia Ferreira De Oliveira
+    affiliation:
+      - Cardiff University
+    email: catia.oliveira@york.ac.uk
+    orcid: https://orcid.org/0000-0002-2976-3330
+    osf: https://osf.io/dpmfc/
+
+date: 2026-05-31
+
+format:
+  html:
+    toc: true
+    number-sections: true
+    embed-resources: true
+    mainfont: "Atkinson Hyperlegible"
+    link-external-newwindow: true
+    theme:
+      - cosmo
+      - ummz_theme.scss
+---
+
+# Project overview
+
+This project explores infant habituation through looking times using a large harmonised dataset from ManyBabies 1, ManyBabies 3, and ManyBabies 4. It is part of a multi-team data analysis effort. The overall project is led by Ingmar Visser, and study-relevant materials are available on the [Open Science Framework](https://osf.io/8xm4r).
+
+# Final analysis reports
+
+Use the links below to open the three final HTML reports.
+
+::: {.panel-tabset}
+
+## Question 1
+
+[Open final analysis for Question 1](Q1_MB_Habituation_Aussems_Bhattacharya_Doenicke_Elsherif.html)
+
+## Question 2
+
+[Open final analysis for Question 2](Q2_MB_Habituation_Aussems_Bhattacharya_Doenicke_Elsherif.html)
+
+## Question 3
+
+[Open final analysis for Question 3](Q3_MB_Habituation_Aussems_Bhattacharya_Doenicke_Elsherif.html)
+
+:::
+
+# Notes
+
+The links assume that the three HTML files are stored in the same folder as this `index.qmd`. If your rendered HTML files have longer names, replace the link targets with the exact filenames shown in your repository.
