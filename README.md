@@ -4,7 +4,7 @@
 This repository contains the analysis, documentation, and outputs for the ManyBabies Habituation project. The study examines infant habituation using reproducible statistical methods implemented in R and Quarto. This project examines infant habituation using looking time data from a harmonised ManyBabies dataset. The analysis was conducted in R and Quarto as part of a ManyBabies / ManyAnalysts team effort.
 
 
-[**Open the full HTML report**](https://jasmindoe.github.io/ManyBabies-Habituation/MB_Habituation_Aussems_Bhattacharya_Doenicke_Elsherif_Havron_Oliveira.html)
+[**Open the full HTML report**](https://jasmindoe.github.io/ManyBabies-Habituation/)
 
 
 ## Main file
