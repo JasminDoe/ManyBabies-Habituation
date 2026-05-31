@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ManyBabies Habituation Project</title>
+  <meta name="description" content="Final analyses and data dictionary for the ManyBabies Habituation Project.">
+  <style>
+    :root {
+      --bg: #f7f9fc;
+      --card: #ffffff;
+      --text: #172033;
+      --muted: #5f6f89;
+      --border: #d9e2ef;
+      --accent: #2f6f9f;
+      --accent-dark: #1f526f;
+      --shadow: 0 10px 30px rgba(23, 32, 51, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Atkinson Hyperlegible", Atkinson Hyperlegible, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    a:hover,
+    a:focus {
+      color: var(--accent-dark);
+      text-decoration: underline;
+    }
+
+    .page {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 40px 20px 64px;
+    }
+
+    header {
+      background: linear-gradient(135deg, #ffffff 0%, #eef6fb 100%);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 40px;
+      box-shadow: var(--shadow);
+      margin-bottom: 28px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--accent-dark);
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      font-size: 0.82rem;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+
+    .subtitle {
+      margin: 20px 0 0;
+      max-width: 880px;
+      color: var(--muted);
+      font-size: 1.12rem;
+    }
+
+    .date {
+      margin-top: 22px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      box-shadow: var(--shadow);
+      margin-top: 24px;
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      font-size: 1.45rem;
+    }
+
+    .overview {
+      margin: 0;
+      max-width: 900px;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 16px;
+      margin-top: 18px;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      background: #ffffff;
+      transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+      min-height: 150px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .card:hover,
+    .card:focus-within {
+      transform: translateY(-3px);
+      box-shadow: 0 14px 28px rgba(23, 32, 51, 0.10);
+      border-color: #a9c7df;
+    }
+
+    .card h3 {
+      margin: 0 0 8px;
+      font-size: 1.08rem;
+    }
+
+    .card p {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 0.96rem;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 10px 14px;
+      background: var(--accent);
+      color: #ffffff;
+      font-weight: 800;
+      width: fit-content;
+    }
+
+    .button:hover,
+    .button:focus {
+      background: var(--accent-dark);
+      color: #ffffff;
+      text-decoration: none;
+    }
+
+    .authors {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .author {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      background: #fbfdff;
+    }
+
+    .author strong {
+      display: block;
+      font-size: 1rem;
+      margin-bottom: 6px;
+    }
+
+    .author span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.93rem;
+      margin-bottom: 8px;
+    }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 0.92rem;
+    }
+
+    footer {
+      margin-top: 30px;
+      color: var(--muted);
+      font-size: 0.94rem;
+      text-align: center;
+    }
+
+    @media (max-width: 640px) {
+      header,
+      section {
+        padding: 24px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="page">
+    <header>
+      <p class="eyebrow">Final analysis index</p>
+      <h1>ManyBabies Habituation Project</h1>
+      <p class="subtitle">
+        This project aims to explore infant habituation through looking times using a large harmonised dataset from ManyBabies 1, ManyBabies 3, and ManyBabies 4. Study relevant materials can be found on the Open Science Framework:
+        <a href="https://osf.io/8xm4r" target="_blank" rel="noopener noreferrer">https://osf.io/8xm4r</a>
+      </p>
+      <p class="date">Date: 2026 05 31</p>
+    </header>
+
+    <section aria-labelledby="overview">
+      <h2 id="overview">Project overview</h2>
+      <p class="overview">
+        This project aims to explore infant habituation through looking times using a large harmonised dataset from ManyBabies 1, ManyBabies 3, and ManyBabies 4 in multiple teams of data analysts. The overall project is led by Ingmar Visser, with study relevant materials being available on the Open Science Framework
+        <a href="https://osf.io/8xm4r" target="_blank" rel="noopener noreferrer">https://osf.io/8xm4r</a>.
+      </p>
+    </section>
+
+    <section aria-labelledby="reports">
+      <h2 id="reports">Final analyses and data dictionary</h2>
+      <div class="cards">
+        <article class="card">
+          <div>
+            <h3>Question 1 final analysis</h3>
+            <p>Open the final HTML report for Question 1.</p>
+          </div>
+          <a class="button" href="Q1_MB_Habituation_Aussems_Bhattacharya_Doenicke_Elsherif_Havron_Oliveira.html">Open Q1</a>
+        </article>
+
+        <article class="card">
+          <div>
+            <h3>Question 2 final analysis</h3>
+            <p>Open the final HTML report for Question 2.</p>
+          </div>
+          <a class="button" href="Q2_MB_Habituation_Aussems_Bhattacharya_Doenicke_Elsherif_Havron_Oliveira.html">Open Q2</a>
+        </article>
+
+        <article class="card">
+          <div>
+            <h3>Question 3 final analysis</h3>
+            <p>Open the final HTML report for Question 3.</p>
+          </div>
+          <a class="button" href="Q3_MB_Habituation_Aussems_Bhattacharya_Doenicke_Elsherif_Havron_Oliveira.html">Open Q3</a>
+        </article>
+
+        <article class="card">
+          <div>
+            <h3>ManyBabies merged data dictionary</h3>
+            <p>Open the merged data dictionary PDF.</p>
+          </div>
+          <a class="button" href="ManyBabies%20Merged%20Data%20Dictionary.pdf">Open PDF</a>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="authors">
+      <h2 id="authors">Authors</h2>
+      <div class="authors">
+        <article class="author">
+          <strong>Suzanne Aussems</strong>
+          <span>Department of Psychology, University of Warwick</span>
+          <div class="links">
+            <a href="mailto:s.aussems.1@warwick.ac.uk">Email</a>
+            <a href="https://orcid.org/0000-0002-0781-5849" target="_blank" rel="noopener noreferrer">ORCID</a>
+            <a href="https://osf.io/zm2k6/" target="_blank" rel="noopener noreferrer">OSF</a>
+          </div>
+        </article>
+
+        <article class="author">
+          <strong>Piyali Bhattacharya</strong>
+          <span>School of Psychology, University of Birmingham</span>
+          <div class="links">
+            <a href="mailto:piya.bhattacharya4@gmail.com">Email</a>
+            <a href="https://orcid.org/0000-0002-1410-4914" target="_blank" rel="noopener noreferrer">ORCID</a>
+            <a href="https://osf.io/at8bf/" target="_blank" rel="noopener noreferrer">OSF</a>
+          </div>
+        </article>
+
+        <article class="author">
+          <strong>Jasmin Dönicke</strong>
+          <span>University Medical Center Mainz</span>
+          <div class="links">
+            <a href="mailto:jasminabuaishah@gmail.com">Email</a>
+            <a href="https://orcid.org/0009-0006-0721-0790" target="_blank" rel="noopener noreferrer">ORCID</a>
+          </div>
+        </article>
+
+        <article class="author">
+          <strong>Naomi Havron</strong>
+          <span>Department of Psychology, University of Haifa</span>
+          <div class="links">
+            <a href="mailto:nhavron@psy.haifa.ac.il">Email</a>
+            <a href="https://orcid.org/0000-0001-6429-1546" target="_blank" rel="noopener noreferrer">ORCID</a>
+            <a href="https://osf.io/89n5y/" target="_blank" rel="noopener noreferrer">OSF</a>
+          </div>
+        </article>
+
+        <article class="author">
+          <strong>Mahmoud Elsherif</strong>
+          <span>School of Psychology, University of Birmingham</span>
+          <div class="links">
+            <a href="mailto:mahmoud.medhat.elsherif@gmail.com">Email</a>
+            <a href="https://orcid.org/0000-0002-0540-3998" target="_blank" rel="noopener noreferrer">ORCID</a>
+            <a href="https://osf.io/e7bs8/" target="_blank" rel="noopener noreferrer">OSF</a>
+          </div>
+        </article>
+
+        <article class="author">
+          <strong>Catia Ferreira De Oliveira</strong>
+          <span>Cardiff University</span>
+          <div class="links">
+            <a href="mailto:catia.oliveira@york.ac.uk">Email</a>
+            <a href="https://orcid.org/0000-0002-2976-3330" target="_blank" rel="noopener noreferrer">ORCID</a>
+            <a href="https://osf.io/dpmfc/" target="_blank" rel="noopener noreferrer">OSF</a>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <footer>
+      <p>Place this file in the repository root on the main branch so the relative links open the reports and PDF directly.</p>
+    </footer>
+  </main>
+</body>
+</html>
